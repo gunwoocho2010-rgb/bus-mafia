@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bus Mafia 🚌</title>
+    <style>
+        body { font-family: sans-serif; background-color: #1a1a1a; color: #ffffff; margin: 0; padding: 20px; }
+        .container { max-width: 500px; margin: 0 auto; background: #2d2d2d; padding: 20px; border-radius: 15px; }
+        h1 { text-align: center; color: #f1c40f; font-size: 24px; }
+        .section { display: none; }
+        .active { display: block; }
+        input, button { width: 100%; padding: 15px; margin: 10px 0; border-radius: 8px; border: none; font-size: 16px; box-sizing: border-box; }
+        input { background: #404040; color: #fff; }
+        button { background: #e74c3c; color: #fff; font-weight: bold; }
+        #chatBox { height: 250px; background: #1e1e1e; border-radius: 8px; padding: 10px; overflow-y: auto; margin-bottom: 10px; border: 1px solid #444; }
+        .msg { margin-bottom: 8px; }
+        .sys-msg { color: #2ecc71; font-weight: bold; }
+        .role-box { background: #34495e; padding: 15px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 15px; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.min.js"></script>
+</head>
+<body>
+<div class="container">
+    <h1>🚌 버스 마피아: 시크릿 시트</h1>
+
+    <div id="lobbySection" class="section active">
+        <input type="text" id="playerName" placeholder="이름을 입력하세요">
+        <input type="number" id="seatNumber" placeholder="내 좌석 번호 (1~35)" min="1" max="35">
+        <button onclick="joinGameRoom()">탑승 및 대기하기</button>
+    </div>
+
+    <div id="gameSection" class="section">
+        <div id="myRoleDisplay" class="role-box">당신의 역할: 대기 중...</div>
+        <div id="chatBox"></div>
+        <input type="text" id="chatMessage" placeholder="익명으로 한마디 던지기...">
+        <button onclick="sendChat()" style="background: #3498db; margin-top: 0;">전송</button>
+
+        <div style="margin-top: 20px; border-top: 1px solid #444; padding-top: 15px;">
+            <input type="number" id="targetSeat" placeholder="저격할 의심 좌석 번호">
+            <button onclick="castVoteTarget()" style="background: #8e44ad;">비밀 투표 제출</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const connection = new signalR.HubConnectionBuilder().withUrl("/gameHub").withAutomaticReconnect().build();
+
+    connection.on("PlayerJoined", function(name, seat, currentCount) {
+        appendSystemMessage(`[탑승] ${seat}번 자리에 [${name}] 연결 완료. (현재: ${currentCount}명)`);
+    });
+
+    connection.on("ReceiveMessage", function(sender, message) {
+        const chatBox = document.getElementById("chatBox");
+        const msgDiv = document.createElement("div");
+        msgDiv.className = "msg";
+        msgDiv.innerHTML = `<span style="color: #f1c40f; font-weight:bold;">${sender}:</span> ${message}`;
+        chatBox.appendChild(msgDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    });
+
+    connection.on("ReceiveSystemMessage", function(message) {
+        appendSystemMessage(message);
+    });
+
+    connection.on("ReceiveRole", function(role) {
+        const roleBox = document.getElementById("myRoleDisplay");
+        roleBox.innerText = `당신의 역할: [${role}]`;
+        if (role === "마피아") roleBox.style.backgroundColor = "#c0392b";
+        else if (role === "경찰") roleBox.style.backgroundColor = "#27ae60";
+        else roleBox.style.backgroundColor = "#2980b9";
+    });
+
+    connection.on("ChangePhase", function(phase) {
+        const chatBtn = document.querySelector("#gameSection button");
+        const chatInput = document.getElementById("chatMessage");
+        if (phase === "Night") {
+            chatBtn.disabled = true;
+            chatInput.placeholder = "밤에는 조용히 하세요... (채팅 불가)";
+            chatBtn.style.backgroundColor = "#7f8c8d";
+        } else {
+            chatBtn.disabled = false;
+            chatInput.placeholder = "익명으로 한마디 던지기...";
+            chatBtn.style.backgroundColor = "#3498db";
+        }
+    });
+
+    connection.start().catch(err => console.error(err.toString()));
+
+    function joinGameRoom() {
+        const name = document.getElementById("playerName").value.trim();
+        const seat = parseInt(document.getElementById("seatNumber").value);
+        if(!name || isNaN(seat)) return alert("정보를 입력하세요.");
+
+        connection.invoke("JoinGame", name, seat).then(function() {
+            document.getElementById("lobbySection").classList.remove("active");
+            document.getElementById("gameSection").classList.add("active");
+        });
+    }
+
+    function sendChat() {
+        const input = document.getElementById("chatMessage");
+        if(!input.value.trim()) return;
+        connection.invoke("SendAnonymousMessage", input.value).then(() => input.value = "");
+    }
+
+    function castVoteTarget() {
+        const targetSeat = parseInt(document.getElementById("targetSeat").value);
+        if(!isNaN(targetSeat)) connection.invoke("CastVote", targetSeat);
+    }
+
+    function appendSystemMessage(msg) {
+        const chatBox = document.getElementById("chatBox");
+        const msgDiv = document.createElement("div");
+        msgDiv.className = "msg sys-msg";
+        msgDiv.innerText = msg;
+        chatBox.appendChild(msgDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>
+</body>
+</html>
